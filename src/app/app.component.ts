@@ -6,8 +6,14 @@ import { MatDialog, MatDialogModule } from '@angular/material/dialog';
 import { MatInputModule } from '@angular/material/input';
 import { FormsModule } from '@angular/forms';
 import { EditDialogComponent } from './edit-dialog/edit-dialog.component';
-import { debounceTime, Subject } from 'rxjs';
+import { debounceTime, map, Observable, Subject, switchMap } from 'rxjs';
 import { MatFormFieldModule } from '@angular/material/form-field';
+import { RxState } from '@rx-angular/state'
+
+interface State {
+    elements: PeriodicElement[];
+    filterValue: string;
+}
 
 @Component({
     selector: 'app-root',
@@ -21,57 +27,47 @@ import { MatFormFieldModule } from '@angular/material/form-field';
         MatTable,
         MatFormFieldModule
     ],
+    providers: [RxState],
     templateUrl: './app.component.html',
     styleUrl: './app.component.css'
 })
 export class AppComponent {
     title = 'test-task';
     displayedColumns: string[] = ['position', 'name', 'weight', 'symbol', 'actions'];
-    dataSource: PeriodicElement[] = [];
 
-    private originalDataSource: PeriodicElement[] = [];
-    private filterSubject = new Subject<string>();
+    originalDataSource$!: Observable<PeriodicElement[]>;
+    filterValue$!: Observable<string>;
+
 
     @ViewChild(MatTable) table!: MatTable<PeriodicElement>;
 
-    constructor(private elementService: PeriodicElementService, public dialog: MatDialog) { }
+    constructor(private _state: RxState<State>, private elementService: PeriodicElementService, public dialog: MatDialog) {
+        this._state.set({ elements: [], filterValue: "" });
+        this._state.connect('elements', this.elementService.fetchElements());
 
-    ngOnInit() {
-        this.elementService.fetchElements().subscribe((data) => {
-            this.originalDataSource = data;
-            this.dataSource = [...this.originalDataSource];
-        });
-
-        this.filterSubject.pipe(
-            debounceTime(200)
-        ).subscribe(filterValue => {
-            this.applyFilter(filterValue);
-        })
-    }
-
-    applyFilter(filterValue: string): void {
-        if (filterValue.trim() === '') 
-            this.dataSource = [...this.originalDataSource];
-        else {
-            const filteredValue = filterValue.trim().toLowerCase();
-
-            this.dataSource = this.dataSource.filter(e =>
-                e.name.toLowerCase().includes(filteredValue) ||
-                e.symbol.toLowerCase().includes(filteredValue) ||
-                e.weight.toString().includes(filteredValue) ||
-                e.position.toString().includes(filteredValue)
-            );
-        }
-
-        if (this.table)
-            this.table.renderRows();
+        this.originalDataSource$ = this._state.select('elements');
+        this.filterValue$ = this._state.select('filterValue');
     }
 
     onFilterInput(event: Event) {
         const input = event.target as HTMLInputElement;
-        const filterValue = input.value;
+        const filterValue = input.value.trim().toLowerCase();
 
-        this.filterSubject.next(filterValue);
+        this._state.set({ filterValue });
+
+        this.originalDataSource$ = this._state.select('filterValue').pipe(
+            debounceTime(2000),
+            switchMap(filterValue =>
+                this._state.select('elements').pipe(
+                    map(elements => elements.filter(e =>
+                        e.name.toLowerCase().includes(filterValue.toLowerCase()) ||
+                        e.symbol.toLowerCase().includes(filterValue.toLowerCase()) ||
+                        e.weight.toString().includes(filterValue) ||
+                        e.position.toString().includes(filterValue)
+                    ))
+                )
+            )
+        );
     }
 
     openEditDialog(element: PeriodicElement): void {
@@ -80,18 +76,17 @@ export class AppComponent {
             data: { ...element }
         });
 
-        dialogRef.afterClosed().subscribe(result => {
-            if (result) {
-                const index = this.dataSource.findIndex(e => e.position === result.position);
-                if (index !== -1) {
-                    this.dataSource[index] = result;
+
+        this.originalDataSource$ = dialogRef.afterClosed().pipe(
+            switchMap(result => {
+                if (!result) {
+                    return this._state.select('elements');
                 }
 
-                if (this.table) {
-                    this.table.renderRows();
-                }
-            }
-        });
-
+                return this._state.select('elements').pipe(
+                    map(elements => elements.map(e => e.position === result.position ? result : e))
+                );
+            })
+        );
     }
 }

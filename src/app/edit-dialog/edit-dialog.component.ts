@@ -3,11 +3,12 @@ import { MAT_DIALOG_DATA, MatDialogRef, MatDialogModule } from '@angular/materia
 import { PeriodicElement } from '../periodic-element.service';
 import { FormsModule } from '@angular/forms';
 import { MatFormFieldModule } from '@angular/material/form-field';
+import { MatInputModule } from '@angular/material/input';
 
 @Component({
     selector: 'app-edit-dialog',
     standalone: true,
-    imports: [MatDialogModule, FormsModule, MatFormFieldModule],
+    imports: [MatDialogModule, FormsModule, MatFormFieldModule, MatInputModule],
     templateUrl: './edit-dialog.component.html',
     styleUrl: './edit-dialog.component.css'
 })
